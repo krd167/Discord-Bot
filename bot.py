@@ -1,32 +1,35 @@
 # bot.py
+import asyncio
 import os
-import random
-import html
+from datetime import datetime
 import discord
-from discord.ext import commands
+from discord.ext import tasks, commands
 from dotenv import load_dotenv
 import requests as r
-import yfinance as yf
+import feedparser as fp
+import json
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD = os.getenv('DISCORD_GUILD')
 
+description = '''An example bot to showcase the discord.ext.commands extension
+module.
+There are a number of utility commands being showcased here.'''
 
 intents = discord.Intents.default()
 intents.members = True
+intents.messages = True
 
-bot = commands.Bot(command_prefix='!', description="test", intents=intents)
+bot = commands.Bot(command_prefix='?', description=description, intents=intents)
 
 
 @bot.event
 async def on_ready():
-    print('Logged in as')
-    print(bot.user.name)
-    print(bot.user.id)
+    print(f'Logged in as {bot.user} (ID: {bot.user.id})')
     print('------')
 
-
+"""
 @bot.command(aliases=["CN", "cn"])
 async def chuck(ctx):
     results = r.get("https://api.chucknorris.io/jokes/random")
@@ -39,106 +42,63 @@ async def chuck(ctx):
         except Exception:
             await ctx.send('Failed to create Embed')
 
-        await ctx.send(embed=embed)
+        try:
+            await ctx.send(embed=embed)
+        except Exception:
+            print("Failed for some reason")
     else:
-        await ctx.send("API Failed to work")
+        try:
+            await ctx.send("API Failed to work")
+        except Exception:
+            print("Failed for some reason")
+"""
+
+@tasks.loop(minutes=5)
+async def gamerant_feed():
+    datafeed = fp.parse('https://gamerant.com/feed')  # RSS feed for gamerant
+    with open('latest.json') as json_file:  # function to oppen json file and read in the latest title
+        data = json.load(json_file)
+    with open('channels.json') as json_file:  # Function to open and read in the channels
+        channels = json.load(json_file)
+    for item in datafeed.entries:  # big loop to get most recent rss data and post it to discord channels
+        if str(item.title) == str(data['latest']):
+           break
+        #print(item.title)  # Needed for troubleshooting only
+        for chan in channels['Gamerant']:  # iterates through channels in the json for "gamerant"
+            await asyncio.sleep(2)
+            rsswrite = bot.get_channel(int(chan))  # gets the channel number
+            message = "@GAMERANT " + item.link  # build the message to send in the channel based on the role
+            await rsswrite.send(message)  # posts the article to the correct channel *hopefully*
+    data['latest'] = datafeed.entries[0].title  # set the json file to the earliest title
+    data = json.dumps(data, indent=4)  # prep to save the json data
+    with open("latest.json", "w") as outfile:  # function to write the json data to the file
+        outfile.write(data)
 
 
-@bot.command()
-async def trivia(ctx):
-    await ctx.send("Welcome to Trivia! - Getting a question now!")
-    await ctx.send(ctx.message.author.name)
-
-    def check(message):
-        return str(message.author) != str(bot.user.name)
-
-    letters = ['a', 'b', 'c', 'd']
-    receive = r.get('https://opentdb.com/api.php?amount=1')
-    content = receive.json()
-    category = content['results'][0]['category']
-    difficulty = content['results'][0]['difficulty']
-    question = html.unescape(content['results'][0]['question'])
-    answers = []
-    for i in range(len(content['results'][0]['incorrect_answers'])):
-        answers.append(content['results'][0]['incorrect_answers'][i])
-    answers.append(content['results'][0]['correct_answer'])
-    random.shuffle(answers)
-    a = 0
-    b = 1
-    c = 2
-    d = 3
-    await ctx.send(f"{question}")
-    for i in range(len(answers)):
-        await ctx.send(f"{letters[i]}. {answers[i]}")
-    msg = await bot.wait_for("message", check=check)
-    #msg2 = str(msg.content).lower()
-    print(msg)
-    print(msg.content)
-    #if str(answers[msg2]) == str(content['results'][0]['correct_answer']):
-    #    print('you answered correctly')
-    #    await ctx.send("You answered correctly")
-    #else:
-    #    await ctx.send('you answered wrongly')
+@tasks.loop(minutes=10)
+async def UpdateChannel():
+    channel = bot.get_channel(1057370819719860234)
+    print(channel)
+    a = datetime(2023, 2, 10, 0, 0, 0)
+    b = datetime.now()
+    c = a-b
+    days = c.days
+    hours = int(c.seconds/3600)
+    minutes = int((c.seconds - (hours*3600))/60)
+    message = str(days) +" Days " + str(hours) + " Hours"
+    print(message)
+    await channel.edit(name=message)
 
 
-###@bot.command()
-#async def stock(ctx, ticks: str):
-#    ticker = yf.Ticker(ticks)
-#    currentPrice
-#    symbol
-###
+@UpdateChannel.before_loop
+async def before_updatechannel():
+    await bot.wait_until_ready()
 
 
-@bot.command()
-async def add(ctx, left: int, right: int):
-    """Adds two numbers together."""
-    await ctx.send(left + right)
+@gamerant_feed.before_loop
+async def before_gamerant_feed():
+    await bot.wait_until_ready()
 
-
-@bot.command()
-async def roll(ctx, dice: str):
-    """Rolls a dice in NdN format."""
-    try:
-        rolls, limit = map(int, dice.split('d'))
-    except Exception:
-        await ctx.send('Format has to be in NdN!')
-        return
-
-    result = ', '.join(str(random.randint(1, limit)) for r in range(rolls))
-    await ctx.send(result)
-
-
-@bot.command(description='For when you wanna settle the score some other way')
-async def choose(ctx, *choices: str):
-    """Chooses between multiple choices."""
-    await ctx.send(random.choice(choices))
-
-
-@bot.command()
-async def repeat(ctx, times: int, content='repeating...'):
-    """Repeats a message multiple times."""
-    for i in range(times):
-        await ctx.send(content)
-
-
-@bot.command()
-async def joined(ctx, member: discord.Member):
-    """Says when a member joined."""
-    await ctx.send('{0.name} joined in {0.joined_at}'.format(member))
-
-
-@bot.group()
-async def cool(ctx):
-    """Says if a user is cool.
-    In reality this just checks if a subcommand is being invoked.
-    """
-    if ctx.invoked_subcommand is None:
-        await ctx.send('No, {0.subcommand_passed} is not cool'.format(ctx))
-
-
-@cool.command(name='bot')
-async def _bot(ctx):
-    """Is the bot cool?"""
-    await ctx.send('Yes, the bot is cool.')
-
+#UpdateChannel.start()
+gamerant_feed.start()
 bot.run(TOKEN)
